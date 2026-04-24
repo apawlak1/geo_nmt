@@ -9,9 +9,9 @@
     "output_path": "C:\\Users\\olaa3\\Desktop\\SKOROWIDZE\\cache\\eksperyment_TBD.tif"
   },
   "mapa_folium": {
-    "cache_dir": "C:\\Users\\olaa3\\Desktop\\SKOROWIDZE\\cache",
-    "powiat": "POZNAŃ",
-    "years": ["2023"],
-    "output_name": "wynik_nmt_POZNAN_2023.html"
+    "cache_dir": "C:\\ArcGIS_projekty\\NMT_apawlak\\SKOROWIDZE\\cache",
+    "powiat": "RZESZÓW",
+    "years": ["2021-2025"], 
+    "output_name": "wynik_nmt_.html"
   }
 }
