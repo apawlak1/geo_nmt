@@ -1,8 +1,18 @@
+import json
 import numpy as np
 import tifffile
 import os
 from pathlib import Path
 import zipfile
+
+config_file = Path(__file__).with_name('config.json')
+config = {}
+if config_file.exists():
+    with open(config_file, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+konwersja_config = config.get('konwersja_ascii', {})
+
 
 def ASCII2GT(input_path, output_path):
     inp=Path(input_path)
@@ -149,9 +159,10 @@ def ASCII2GT(input_path, output_path):
 #test=ASCII2GT(testfileN, outputN)
 
 #ASCII TBD
-testfileT=r'C:\Users\olaa3\Desktop\SKOROWIDZE\ASCII\ASCII_TBD\73727_1018381_6.161.33.03.1.zip'
-outputT=r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache\eksperyment_TBD.tif'
-test=ASCII2GT(testfileT, outputT)
+# wartości można zaktualizować w config.json
+testfileT = konwersja_config.get('input_path', r'C:\Users\olaa3\Desktop\SKOROWIDZE\ASCII\ASCII_TBD\73727_1018381_6.161.33.03.1.zip')
+outputT = konwersja_config.get('output_path', r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache\eksperyment_TBD.tif')
+test = ASCII2GT(testfileT, outputT)
 
 #ASCII XYZ GRID
 #testfileX=r'C:\Users\olaa3\Desktop\SKOROWIDZE\ASCII\ASCII_XYZ_GRID\73853_1042043_M-34-7-B-b-2-2.xyz'

@@ -1,4 +1,5 @@
 import geopandas as gpd
+import json
 import pandas as pd
 import folium
 import requests
@@ -6,6 +7,7 @@ import io
 import sys
 import os
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from shapely.geometry import box
 import branca.colormap as cm
 
@@ -14,11 +16,19 @@ wfs_PRG = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/PRG/WFS/Administrativ
 wfs_nmtKR = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuKRON86/WFS/Skorowidze'
 wfs_nmt = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze'
 
-#do korzystania z serwerow
+config_file = Path(__file__).with_name('config.json')
+config = {}
+if config_file.exists():
+    with open(config_file, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+map_config = config.get('mapa_folium', {})
+
+# do korzystania z serwerow
 headers = {'User-Agent': 'Mozilla/5.0'}
 
 #---ZEBY NIE POBIERAC ZA KAZDYM RAZEM WARSTWY POWIATOW---
-cache_dir = r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache'
+cache_dir = map_config.get('cache_dir', r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache')
 powiaty_file = os.path.join(cache_dir, 'granice_powiatow.geojson')
 
 def download_powiaty():
@@ -60,11 +70,25 @@ def download_powiaty():
 powiaty = download_powiaty()
 
 #---FILTROWANIE POWIATU---
-print('\nPodaj nazwe powiatu:')
-nazwa_user = input().strip()
+config_powiat = map_config.get('powiat')
+config_years = map_config.get('years')
 
-print('\nPodaj rok (lub lata, oddzielone przecinkiem):')
-year_user = [l.strip() for l in input().split(',')]
+if config_powiat:
+    nazwa_user = config_powiat.strip()
+    print(f'Powiat ustawiony z config.json: {nazwa_user}')
+else:
+    print('\nPodaj nazwe powiatu:')
+    nazwa_user = input().strip()
+
+if config_years is not None:
+    if isinstance(config_years, list):
+        year_user = [str(y).strip() for y in config_years]
+    else:
+        year_user = [l.strip() for l in str(config_years).split(',')]
+    print(f'Rok(y) ustawione z config.json: {", ".join(year_user)}')
+else:
+    print('\nPodaj rok (lub lata, oddzielone przecinkiem):')
+    year_user = [l.strip() for l in input().split(',')]
 
 #Filtracja powiatu wg kolumny JPT_NAZWA_
 #regex zabezpiecza przed wyszukaniem np. OSTRZESZOWSKIEGO przy szukaniu RZESZOWSKIEGO
@@ -227,8 +251,8 @@ folium.LayerControl(collapsed=False).add_to(mapa)
 #budowa nazwy pliku i zapis
 powiat_save = powiat_test['JPT_NAZWA_'].iloc[0].replace(" ", "_")
 lata_save = "_".join(year_user)
-nazwa_save = f'wynik_nmt_{powiat_save}_{lata_save}.html'
-save_dir = os.path.join(cache_dir, nazwa_save)
+output_name = map_config.get('output_name', f'wynik_nmt_{powiat_save}_{lata_save}.html')
+save_dir = os.path.join(cache_dir, output_name)
 
 # Ostateczny zapis mapy
 mapa.save(save_dir)
