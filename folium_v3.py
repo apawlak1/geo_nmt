@@ -10,7 +10,6 @@ from shapely.geometry import box
 import branca.colormap as cm
 from processor import process_data  #moj plik .py
 from downloader import download_nmt_files   #moj plik .py
-import time
 
 #---SCIEZKI---
 wfs_PRG = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/PRG/WFS/AdministrativeBoundaries'
@@ -53,7 +52,7 @@ def download_powiaty():
 
 powiaty = download_powiaty()
 
-print('\nPodaj nazwe JPT:')
+print('\nPodaj nazwe powiatu:')
 nazwa_user = input().strip()
 
 print('\nPodaj rok (lub lata, oddzielone przecinkiem):')
@@ -65,6 +64,9 @@ powiat_test = powiaty[powiaty['JPT_NAZWA_'].str.contains(rf'\b{nazwa_user}\b', c
 if powiat_test.empty:
     print(f'Powiat {nazwa_user} nie istnieje')
     sys.exit()
+
+powiat_save = powiat_test['JPT_NAZWA_'].iloc[0].replace(' ', '_')
+lata_save = '_'.join(year_user)
 
 #Obliczenie BBOX dla powiatu
 minx, miny, maxx, maxy = powiat_test.total_bounds
@@ -83,7 +85,7 @@ for df in [powiat_4326, powiaty_4326]:
         if col != 'geometry':
             df[col] = df[col].apply(lambda x: str(x) if x is not None else '')
 
-print('Tworzenie mapy')
+print(f'\nTworzenie mapy HTML')
 mapa = folium.Map(location=[c_lat, c_lon], zoom_start=11, tiles='CartoDB positron')
 
 folium.GeoJson(powiaty_4326, name='Wszystkie powiaty',
@@ -108,7 +110,7 @@ for year in year_user:
         response = requests.get(wfs_nmt, params=params_nmt, headers=headers, timeout=60)
         
         if response.status_code == 200:
-            print(f'[TESTOWE] Serwer odp prawidlowo, rozmiar odp: {len(response.content)} bajtów.')
+            print(f'[TEST] Serwer odpowiedzial prawidlowo, rozmiar odp: {len(response.content)} bajtów.')
         else:
             print(f'[TEST] Serwer zwrocil kod bledu: {response.status_code}')
             
@@ -163,7 +165,7 @@ for year in year_user:
                             'epsg': epsg})
 
             dane_do_pobrania[year]={'linki': ldp,
-                                    'folder': os.path.join(cache_dir, f'nmt_{year}')}
+                                    'folder': os.path.join(cache_dir, f'nmt_{year}_{powiat_save}')}
             
         print(f'Znaleziono {len(skorowidze)} arkuszy dla roku {year}')
 
@@ -213,8 +215,6 @@ for year in year_user:
 
 folium.LayerControl(collapsed=False).add_to(mapa)
 
-powiat_save = powiat_test['JPT_NAZWA_'].iloc[0].replace(' ', '_')
-lata_save = '_'.join(year_user)
 nazwa_save = f'wynik_nmt_{powiat_save}_{lata_save}.html'
 save_dir = os.path.join(cache_dir, nazwa_save)
 
@@ -222,25 +222,44 @@ mapa.save(save_dir)
 print(f'Mapa zapisana w: {save_dir}')
 
 # ---POBIERANIE I PRZETWARZANIE---
-print('POBIERANIE DANYCH')
+if not dane_do_pobrania:
+    print('Brak danych do pobrania. n\ZAKONCZONO')
+else:
+    for year, info in dane_do_pobrania.items():
+        liczba = len(info['linki'])
+        folder_year=info['folder']
+        os.makedirs(folder_year, exist_ok=True)
 
-for year, info in dane_do_pobrania.items():
-    liczba = len(info['linki'])
-    decyzja = input(f'Pobrac i przetworzyc {liczba} arkuszy dla roku {year}? (t/n): ').lower()
-    
-    if decyzja == 't':
+        #zawsze pytam o mozaike, zapisuje decyzje
+        while True:
+            decyzja_moz=input(f'\nPolaczyc arkusze w mozaike dla roku {year}? (t/n): ').lower().strip()
+            if decyzja_moz in ['t', 'n']:
+                create_mosaic=(decyzja_moz=='t')
+                break
+            print(f'Wpisz [t] dla TAK lub [n] dla NIE.')
+            
+        #zawsze pytam o pobieranie
+        while True:
+            decyzja_downl=input(f'Pobrac {liczba} arkuszy dla roku {year}? (t/n): ').lower().strip()
+            if decyzja_downl in ['t', 'n']:
+                do_download=(decyzja_downl=='t')
+                break
+            print(f'Wpisz [t] dla TAK lub [n] dla NIE.')
+
+        #WYKONANIE AKCJI
         folder_rok = info['folder']
         os.makedirs(folder_rok, exist_ok=True)
         
-        print(f'\n--- POBIERANIE DANYCH DLA ROKU {year} ---')
-        # --- POPRAWIONE WYWOŁANIE (Przekazujemy całą listę do nowej metody) ---
-        download_nmt_files(info['linki'], folder_rok) 
-        
-        pliki_na_dysku = [f for f in os.listdir(folder_rok) if f.lower().endswith(('.zip', '.asc', '.xyz'))]
-        
-        if len(pliki_na_dysku) > 0:
+        #pobieranie tylko jesli uzytkownik chcial
+        if do_download:
+            print(f'\n---POBIERANIE DANYCH DLA ROKU {year}---')
+            download_nmt_files(info['linki'], folder_rok)
+
+        #pliki_na_dysku = [f for f in os.listdir(folder_rok) if f.lower().endswith(('.asc', '.xyz', '.txt'))]
+            
+        #if len(pliki_na_dysku) > 0:
             print(f'--- PRZETWARZANIE DANYCH DLA ROKU {year} ---')
-            geom_2180 = powiat_test.geometry.iloc[0]
+            geom_2180 = powiat_test.to_crs(epsg=2180).geometry.iloc[0] #wymuszam w razie czego 2180
             nazwa_pliku = f'NMT_{powiat_save}_{year}_FINAL.tif' 
             pelna_sciezka_wyniku = os.path.join(folder_rok, nazwa_pliku)
 
@@ -250,13 +269,19 @@ for year, info in dane_do_pobrania.items():
                 nazwa_pliku = p['url'].split('/')[-1]
                 mapa_uklady[nazwa_pliku] = p['epsg']
 
-            process_data(folder_rok, pelna_sciezka_wyniku, geom_2180, mapa_uklady)
-            
-            if os.path.exists(pelna_sciezka_wyniku):
-                print(f'Wynik zapisany w: {pelna_sciezka_wyniku}')
+            #to samo dla akt_data
+            mapa_daty={row['url_do_pobrania'].split('/')[-1]:
+                       pd.to_datetime(row['akt_data'])
+                       for index, row in skorowidze.iterrows()}
+
+
+            #WYWOLANIE FUNKCJI Z DECYZJA O MOZAICE
+            process_data(folder_rok, pelna_sciezka_wyniku, geom_2180, mapa_uklady, mapa_daty, create_mosaic=create_mosaic, extract=do_download)
+                
+            #informacja w zaleznosci od trybu
+            if create_mosaic:
+                print(f'Mozaika zapisana w: {pelna_sciezka_wyniku}')
             else:
-                print('BLAD')
-    else:
-        print(f'Pominieto rok {year}.')
+                print(f'Kafelki zapisano w folderze: {os.path.join(os.path.dirname(pelna_sciezka_wyniku), "wyniki_konwersji")}')
 
 print('\nZAKONCZONO')
