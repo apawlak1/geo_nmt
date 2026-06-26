@@ -119,7 +119,8 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
     rows = np.clip(rows, 0, nrows - 1)
 
     #wypelnienie rastra wartosciami Z
-    raster[rows, cols] = z_coords
+    #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+    raster[rows, cols] = np.round(z_coords, 2)
 
     #--- 3. BOUNDING BOX DLA RASTERIO---
     x_corner = x_min - (cellsize / 2)  
@@ -160,4 +161,3 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
 #testfileX=r'C:\Users\olaa3\Desktop\SKOROWIDZE\ASCII\ASCII_XYZ_GRID\73853_1042043_M-34-7-B-b-2-2.xyz'
 #outputX=r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache\eksperyment_XYZ.tif'
 #test=ASCII2GT(testfileX, outputX)
-

@@ -114,11 +114,18 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
     tiffs_to_mosaic=[]
     
     #szukam mozliwych rozszerzen
+    #system plikow jest case-insensitive, wiec OBA wzorce dopasowywaly TEN SAM plik (podwojenie)
+    #szukam teraz kazdego rozszerzenia TYLKO RAZ (malymi literami)
     wyszukane_pliki = []
+    widziane_sciezki = set()
 
     folder_path=Path(zip_dir)
-    for ext in ['*.asc', '*.ASC', '*.xyz', '*.XYZ', '*.txt', '*.TXT']:
-        wyszukane_pliki.extend(folder_path.rglob(ext))
+    for ext in ['*.asc', '*.xyz', '*.txt']:
+        for p in folder_path.rglob(ext):
+            sciezka_norm = str(p.resolve()).lower()
+            if sciezka_norm not in widziane_sciezki:
+                widziane_sciezki.add(sciezka_norm)
+                wyszukane_pliki.append(p)
 
     wyszukane_pliki = [str(p) for p in wyszukane_pliki]
 
@@ -164,7 +171,12 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
 
         if os.path.exists(tif_final_path):
             if kod_epsg != 2180:
-                tif_reprojected_path = tif_final_path.replace('_tmp.tif', '_reproj.tif')
+                #BYLO: tif_final_path.replace('_tmp.tif', '_reproj.tif')
+                #'_tmp.tif' nie istnialo w nazwie pliku, wiec sciezka wynikowa
+                #byla IDENTYCZNA jak tif_final_path -> probowano zapisac
+                #do pliku, ktory 'src' mial jeszcze otwarty do odczytu (PermissionError)
+                base, ext = os.path.splitext(tif_final_path)
+                tif_reprojected_path = base + '_2180' + ext
                 dst_crs = CRS.from_epsg(2180)
                 
                 try:
@@ -187,10 +199,24 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
                                       src_transform=src.transform, src_crs=wykryty_crs,
                                       dst_transform=dst_transform, dst_crs=dst_crs,
                                       resampling=Resampling.bilinear)
+                            if src.nodata is not None and np.isnan(src.nodata):
+                                destination_array = np.round(destination_array, 2)
+                            else:
+                                maska = destination_array != src.nodata
+                                destination_array[maska] = np.round(destination_array[maska], 2)
+
                             dst.write(destination_array, 1)
                     
                     #usuwam plik zrodlowy 2000 i zastepuje 1992 (TYLKO JAK KONWERSJA SIE UDA)
                     time.sleep(2.0)
+
+                    #plik zrodlowy (tif_final_path) jest juz osobnym plikiem
+                    #od tif_reprojected_path, wiec trzeba go jawnie usunac
+                    try:
+                        os.remove(tif_final_path)
+                    except Exception as e:
+                        print(f'[PROCES] Uwaga: nie udalo sie usunac pliku tymczasowego {os.path.basename(tif_final_path)}: {e}')
+
                     path_to_add = tif_reprojected_path
                     reproject_ok=True
                     print(f'[PROCES] Reprojekcja zakonczona: {os.path.basename(tif_reprojected_path)}')
@@ -248,7 +274,15 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
         print(f'[PROCES] Zmiana rozdzielczosci kafelkow')
     
         for f in tiffs_to_mosaic:
-            base_name = os.path.basename(f).replace('_tmp.tif', f'_res_{target_cellsize}m.tif')
+            #BYLO: os.path.basename(f).replace('_tmp.tif', f'_res_{...}m.tif')
+            #'_tmp.tif' nigdy nie wystepowalo w nazwie, wiec sufiks byl
+            #doklejany na koniec ('plik.tif_res_0.5m.tif') - nieprawidlowa nazwa.
+            #Dodatkowo usuwam sufiks '_2180' (dodany przy reprojekcji), zeby
+            #get_date() nizej mogl prawidlowo odtworzyc oryginalna nazwe pliku .asc
+            stem = Path(f).stem
+            if stem.endswith('_2180'):
+                stem = stem[:-len('_2180')]
+            base_name = f'{stem}_res_{target_cellsize}m.tif'
             out_degraded_path = os.path.join(cache_degraded_dir, base_name)
 
             with rasterio.open(f) as src:
@@ -276,7 +310,17 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
                     #!!!POPRAWKA CZYTANIA!!! 
                     #jawnie podaje ksztalt do odczytu, aby rasterio wiedziało, ze chce cala macierz pikseli!
                     degraded_data = vrt.read(1, out_shape=(new_height, new_width))
-                
+
+                    #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+                    #interpolacja bilinear przy zmianie rozdzielczosci generuje wartosci z wieksza precyzja niz wejsciowe dane
+                    if src.nodata is not None and np.isnan(src.nodata):
+                        degraded_data = np.round(degraded_data, 2)
+                    elif src.nodata is not None:
+                        maska = degraded_data != src.nodata
+                        degraded_data[maska] = np.round(degraded_data[maska], 2)
+                    else:
+                        degraded_data = np.round(degraded_data, 2)
+
                     vrt_meta = vrt.meta.copy()
                     vrt_meta.update({'driver': 'GTiff',
                                      'width': new_width, 'height': new_height,
@@ -294,39 +338,107 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
             filename = os.path.basename(file_path).replace(f'_res_{target_cellsize}m.tif', '').replace('.tif', '.asc')
             #zwraca date ze slownika
             return mapa_daty.get(filename, pd.Timestamp.min)
-        permanent_degraded_tiffs.sort(key=get_date)
+
+        #---SORTOWANIE OD NAJNOWSZYCH---
+        #mozaika ma sie wypelniac NAJNOWSZYMI danymi w pierwszej kolejnosci;
+        #starsze dane dokladane sa tylko tam, gdzie nowsze nie pokrywaja JPT
+        permanent_degraded_tiffs.sort(key=get_date, reverse=True)
 
         try:
             print(f'[PROCES] Laczenie rastrow')
 
-            src_files_to_mosaic=[rasterio.open(f) for f in permanent_degraded_tiffs]
             geom_shape = shape(geometry)
             jpt_bounds = geom_shape.bounds  #(minx, miny, maxx, maxy)
             temp_mosaic_path = os.path.join(zip_dir, 'TEMP_big_mosaic.tif')
-            
-            #tworzenie mozaiki
-            mosaic, out_trans = merge(src_files_to_mosaic,
-                                      bounds=jpt_bounds,
-                                      res=target_cellsize)
-        
-            out_meta = src_files_to_mosaic[0].meta.copy()
-            out_meta.update({'driver': 'GTiff',
-                             'height': mosaic.shape[1], 'width': mosaic.shape[2],
-                             'transform': out_trans,
-                             'crs': rasterio.crs.CRS.from_epsg(2180),
-                             'compress': 'lzw'})
 
-            #zamykam zrodla przed zapisem mozaiki
-            for src in src_files_to_mosaic:
-                src.close()
-            
-            with rasterio.open(temp_mosaic_path, 'w', **out_meta) as dest:
-                dest.write(mosaic)
+            #---MOZAIKOWANIE KAFELEK PO KAFELKU---
+            #kafelki sa posortowane od najnowszych do najstarszych.
+            #dokladam je w tej kolejnosci i po kazdym sprawdzam, JPT jest w 100% pokryte danymi
+            #jak tak to przerywam, starsze kafelki nie sa potrzebne
+            uzyte_tiffs = []
+            mosaic = None
+            out_trans = None
+            out_meta = None
+            out_image = None
+            brakujace_px = 0
+            pelne_pokrycie = False
 
-            #4. przycinanie do JPt
+            for idx, f in enumerate(permanent_degraded_tiffs):
+                uzyte_tiffs.append(f)
+
+                #odwracam kolejnosc dla merge(): najnowszy (pierwszy dolozony) ma byc na koncu
+                kolejnosc_merge = list(reversed(uzyte_tiffs))
+                src_files_to_mosaic = [rasterio.open(p) for p in kolejnosc_merge]
+
+                mosaic, out_trans = merge(src_files_to_mosaic,
+                                          bounds=jpt_bounds,
+                                          res=target_cellsize)
+
+                #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+                mosaic = np.round(mosaic, 2)
+
+                out_meta = src_files_to_mosaic[0].meta.copy()
+                out_meta.update({'driver': 'GTiff',
+                                 'height': mosaic.shape[1], 'width': mosaic.shape[2],
+                                 'transform': out_trans,
+                                 'crs': rasterio.crs.CRS.from_epsg(2180),
+                                 'compress': 'lzw'})
+
+                nodata_val = out_meta.get('nodata')
+
+                #zamykam zrodla po kazdej iteracji
+                for src in src_files_to_mosaic:
+                    src.close()
+
+                #---SPRAWDZAM POKRYCIE JPT---
+                #zapisuje tymczasowo mozaike, przycinam do JPT i licze nodata
+                with rasterio.open(temp_mosaic_path, 'w', **out_meta) as dest:
+                    dest.write(mosaic)
+
+                with rasterio.open(temp_mosaic_path) as src:
+                    out_image, _ = mask(src, [geometry], crop=True)
+
+                if nodata_val is not None:
+                    if np.isnan(nodata_val):
+                        brakujace_px = np.isnan(out_image).sum()
+                    else:
+                        brakujace_px = np.sum(out_image == nodata_val)
+                else:
+                    brakujace_px = 0
+
+                print(f'[PROCES] Dolaczono kafelek {idx + 1}/{len(permanent_degraded_tiffs)} '
+                      f'({os.path.basename(f)}) | brakujace px w JPT: {brakujace_px}')
+
+                if brakujace_px == 0:
+                    pelne_pokrycie = True
+                    print(f'[PROCES] Obszar JPT w 100% pokryty danymi - przerywam mozaikowanie '
+                          f'({len(permanent_degraded_tiffs) - (idx + 1)} starszych kafelkow pominieto).')
+                    break
+
+            if pelne_pokrycie:
+                print('[PROCES] Mozaika zapelniona przed wykorzystaniem wszystkich kafelkow.')
+            else:
+                #---BRAK PELNEGO POKRYCIA NAWET PO WYKORZYSTANIU WSZYSTKICH KAFELKOW---
+                if out_image is not None and out_image.size > 0:
+                    procent_braku = round(100 * brakujace_px / out_image.size, 2)
+                else:
+                    procent_braku = None
+
+                if procent_braku is not None:
+                    print(f'[PROCES] UWAGA: wykorzystano wszystkie {len(permanent_degraded_tiffs)} kafelkow.'
+                          f'Obszar JPT nie jest w 100% pokryty danymi ')
+                else:
+                    print('[PROCES] Wykorzystano wszystkie kafelki, obszar JPT pokryty w 100%.')
+
+            #4. przycinanie do JPt (finalny zapis)
             print('[PROCES] Przycinanie do ksztaltu JPT')
             with rasterio.open(temp_mosaic_path) as src:
                 out_image, out_transform = mask(src, [geometry], crop=True)
+
+                #---ZAOKRAGLENIE WARTOSCI PIKSELI (WYSOKOSCI) DO 2 MSC PO PRZECINKU---
+                #np.round() bezpiecznie zwraca NaN ani nie psuje -9999
+                out_image = np.round(out_image, 2)
+
                 out_meta.update({'height': out_image.shape[1], 'width': out_image.shape[2], 'transform': out_transform})
                 with rasterio.open(final_output_path, 'w', **out_meta) as dest:
                     dest.write(out_image)
@@ -336,6 +448,15 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
                 os.remove(temp_mosaic_path)
             for f in permanent_degraded_tiffs:
                 if os.path.exists(f): os.remove(f)
+
+            #usuwam folder cache_degraded jesli jest juz pusty
+            try:
+                if os.path.isdir(cache_degraded_dir) and not os.listdir(cache_degraded_dir):
+                    os.rmdir(cache_degraded_dir)
+                    print(f'[PROCES] Usunieto pusty folder: {cache_degraded_dir}')
+            except Exception as e:
+                print(f'[PROCES] Nie udalo sie usunac folderu {cache_degraded_dir}: {e}')
+
             print(f'[PROCES] Wynik (mozaika) zapisany w: {final_output_path}')
 
         except Exception as e:

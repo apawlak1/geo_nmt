@@ -19,7 +19,7 @@ wfs_nmt = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenu
 headers = {'User-Agent': 'Mozilla/5.0'}
 
 cache_dir = r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache'
-powiaty_file = os.path.join(cache_dir, 'sopot.geojson')
+powiaty_file = os.path.join(cache_dir, 'JPT_powiat.geojson')
 
 dane_do_pobrania={}
 
@@ -155,8 +155,18 @@ for year in year_user:
                     'PL-2000:S7':2178,
                     'PL-2000:S8':2179}
 
-            ldp=[]
+            #---WYKLUCZENIE FORMATU ASCII TBD Z POBIERANIA/MOZAIKOWANIA---
+            #TBD zostaje widoczne na mapie folium ale NIE trafia do listy
+            #pobierania ani do dalszego przetwarzania
+            pominieto_tbd = 0
+            ldp=[] #lista dalszego pobierania
             for _, row in skorowidze.iterrows():
+                format_arkusza = str(row.get('format', '')).strip().upper()
+
+                if 'TBD' in format_arkusza:
+                    pominieto_tbd += 1
+                    continue
+
                 uklad=str(row.get('uklad_xy', '')).strip()
 
                 epsg=uklady.get(uklad, 2180)    #2180 daje na w razie czego, raczej nie ma takiej sytuacji
@@ -164,8 +174,12 @@ for year in year_user:
                 ldp.append({'url': row['url_do_pobrania'],
                             'epsg': epsg})
 
-            dane_do_pobrania[year]={'linki': ldp,
-                                    'folder': os.path.join(cache_dir, f'nmt_{year}_{powiat_save}')}
+            if pominieto_tbd:
+                print(f'Znaleziono i pominieto {pominieto_tbd} arkuszy w formacie ASCII TBD (pobieranie/mozaikowanie)')
+
+            if ldp:
+                dane_do_pobrania[year]={'linki': ldp,
+                                        'folder': os.path.join(cache_dir, f'nmt_{year}_{powiat_save}')}
             
         print(f'Znaleziono {len(skorowidze)} arkuszy dla roku {year}')
 
@@ -184,10 +198,22 @@ for year in year_user:
         nmt_kampania = skorowidze_4326['nr_zglosz'].unique()
         colormap = cm.linear.Paired_08.scale(0, max(2, len(nmt_kampania)))
 
-        for i, n in enumerate(nmt_kampania):
-            nr_kampanii = skorowidze_4326[skorowidze_4326['nr_zglosz'] == n]
-            color_hex = colormap(i) 
-            warstwa_zgloszenie = folium.FeatureGroup(name=f'[{year}] Zgloszenie {n}')
+        #---GRUPOWANIE WARSTW PO (ZGLOSZENIE, FORMAT)---
+        #warstwy w roznych formatach sie na siebie nakladaja
+        #grupuje po parze (nr_zglosz, format), nie tylko po zgloszeniu
+        kombinacje = skorowidze_4326[['nr_zglosz', 'format']].drop_duplicates()
+
+        for _, kombinacja in kombinacje.iterrows():
+            n = kombinacja['nr_zglosz']
+            fmt = kombinacja['format']
+
+            nr_kampanii = skorowidze_4326[
+                (skorowidze_4326['nr_zglosz'] == n) & (skorowidze_4326['format'] == fmt)]
+
+            i = list(nmt_kampania).index(n)
+            color_hex = colormap(i)
+
+            warstwa_zgloszenie = folium.FeatureGroup(name=f'[{year}] {fmt} - Zgloszenie {n}')
 
             folium.GeoJson(
                 nr_kampanii,

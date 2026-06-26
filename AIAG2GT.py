@@ -44,6 +44,10 @@ def AIAG2GTIFF(input_path, output_path, epsg_code=2180):
     #zmiana tresci (body) na macierz numpy (2D)
     data = np.fromstring(' '.join(body), sep=' ').reshape((nrows, ncols)).astype('float32')
 
+    #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+    #nodata_value zostaje niezmienione (round na liczbie calkowitej nie zmienia jej wartosci)
+    data = np.round(data, 2)
+
     #definicja transformacji przestrzennej na podstawie lewego gornego rogu
     transform = from_origin(x_left, y_top, cellsize, cellsize)
     wykryty_crs = CRS.from_epsg(epsg_code)
