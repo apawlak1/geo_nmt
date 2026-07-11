@@ -1,0 +1,16 @@
+name: geo-nmt
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - geopandas
+  - rasterio
+  - fiona
+  - shapely
+  - pyproj
+  - pandas
+  - numpy
+  - folium
+  - branca
+  - requests
+  - tifffile

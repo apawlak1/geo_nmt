@@ -1,0 +1,11 @@
+geopandas
+rasterio
+fiona
+shapely
+pyproj
+pandas
+numpy
+folium
+branca
+requests
+tifffile

@@ -1,17 +1,17 @@
 {
   "konwersja_tin": {
-    "input_tin_folder": "C:\\Users\\olaa3\\Desktop\\SKOROWIDZE\\ESRI_TIN\\4498_378005_N-34-118-B-a-4_tin",
-    "output_tif": "C:\\Users\\olaa3\\Desktop\\SKOROWIDZE\\cache\\4498_378005_N-34-118-B-a-4.tif",
+    "input_tin_folder": "C:\\SkryptyPython\\Badania\\NMT_apawlak\\SKOROWIDZE\\ESRI_TIN\\4498_378005_N-34-118-B-a-4_tin",
+    "output_tif": "C:\\SkryptyPython\\Badania\\NMT_apawlak\\SKOROWIDZE\\cache\\4498_378005_N-34-118-B-a-4.tif",
     "cellsize": 0.5
   },
   "konwersja_ascii": {
-    "input_path": "C:\\Users\\olaa3\\Desktop\\SKOROWIDZE\\ASCII\\ASCII_TBD\\73727_1018381_6.161.33.03.1.zip",
-    "output_path": "C:\\Users\\olaa3\\Desktop\\SKOROWIDZE\\cache\\eksperyment_TBD.tif"
+    "input_path": "C:\\SkryptyPython\\Badania\\NMT_apawlak\\SKOROWIDZE\\ASCII\\ASCII_TBD\\73727_1018381_6.161.33.03.1.zip",
+    "output_path": "C:\\SkryptyPython\\Badania\\NMT_apawlak\\SKOROWIDZE\\cache\\eksperyment_TBD.tif"
   },
   "mapa_folium": {
-    "cache_dir": "C:\\ArcGIS_projekty\\NMT_apawlak\\SKOROWIDZE\\cache",
-    "powiat": "RZESZÓW",
-    "years": ["2021-2025"], 
+    "cache_dir": "C:\\SkryptyPython\\Badania\\NMT_apawlak\\SKOROWIDZE\\cache",
+    "powiat": "Kraków",
+    "years": ["2025"], 
     "output_name": "wynik_nmt_.html"
   }
 }

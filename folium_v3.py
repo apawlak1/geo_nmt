@@ -5,6 +5,7 @@ import requests
 import io
 import sys
 import os
+import json
 import xml.etree.ElementTree as ET
 from shapely.geometry import box
 import branca.colormap as cm
@@ -12,13 +13,42 @@ from processor import process_data  #moj plik .py
 from downloader import download_nmt_files   #moj plik .py
 
 #---SCIEZKI---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
+
 wfs_PRG = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/PRG/WFS/AdministrativeBoundaries'
 wfs_nmtKR = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuKRON86/WFS/Skorowidze'
 wfs_nmt = 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze'
 
 headers = {'User-Agent': 'Mozilla/5.0'}
 
-cache_dir = r'C:\Users\olaa3\Desktop\SKOROWIDZE\cache'
+def load_config():
+    if not os.path.exists(CONFIG_PATH):
+        return {}
+
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f'Nie udalo sie wczytac config.json: {e}')
+        return {}
+
+
+def normalize_path(path_value):
+    path_value = os.path.expandvars(os.path.expanduser(str(path_value)))
+    if not os.path.isabs(path_value):
+        path_value = os.path.join(BASE_DIR, path_value)
+    return os.path.normpath(path_value)
+
+
+config = load_config()
+mapa_config = config.get('mapa_folium', {})
+
+cache_dir = normalize_path(mapa_config.get(
+    'cache_dir',
+    'C:\\SkryptyPython\\Badania\\NMT_apawlak\\SKOROWIDZE\\cache'
+))
+os.makedirs(cache_dir, exist_ok=True)
 powiaty_file = os.path.join(cache_dir, 'JPT_powiat.geojson')
 
 dane_do_pobrania={}
@@ -52,11 +82,27 @@ def download_powiaty():
 
 powiaty = download_powiaty()
 
-print('\nPodaj nazwe powiatu:')
-nazwa_user = input().strip()
+config_powiat = str(mapa_config.get('powiat', '')).strip()
+if config_powiat:
+    nazwa_user = config_powiat
+    print(f'\nPowiat z config.json: {nazwa_user}')
+else:
+    print('\nPodaj nazwe powiatu:')
+    nazwa_user = input().strip()
 
-print('\nPodaj rok (lub lata, oddzielone przecinkiem):')
-year_user = [l.strip() for l in input().split(',')]
+config_years = mapa_config.get('years', [])
+if isinstance(config_years, str):
+    year_user = [l.strip() for l in config_years.split(',') if l.strip()]
+elif isinstance(config_years, list):
+    year_user = [str(l).strip() for l in config_years if str(l).strip()]
+else:
+    year_user = []
+
+if year_user:
+    print(f'Lata z config.json: {", ".join(year_user)}')
+else:
+    print('\nPodaj rok (lub lata, oddzielone przecinkiem):')
+    year_user = [l.strip() for l in input().split(',') if l.strip()]
 
 #!!!W TYM MIEJSCU W ROZNYCH JPT ROZNA NAZWA KOLUMNY, MOZNA TO OPRACOWAC
 powiat_test = powiaty[powiaty['JPT_NAZWA_'].str.contains(rf'\b{nazwa_user}\b', case=False, regex=True)].copy()
@@ -241,15 +287,20 @@ for year in year_user:
 
 folium.LayerControl(collapsed=False).add_to(mapa)
 
-nazwa_save = f'wynik_nmt_{powiat_save}_{lata_save}.html'
+output_name = str(mapa_config.get('output_name', '')).strip()
+if output_name:
+    nazwa_save = output_name.format(powiat=powiat_save, lata=lata_save, years=lata_save)
+else:
+    nazwa_save = f'wynik_nmt_{powiat_save}_{lata_save}.html'
 save_dir = os.path.join(cache_dir, nazwa_save)
+os.makedirs(os.path.dirname(save_dir), exist_ok=True)
 
 mapa.save(save_dir)
 print(f'Mapa zapisana w: {save_dir}')
 
 # ---POBIERANIE I PRZETWARZANIE---
 if not dane_do_pobrania:
-    print('Brak danych do pobrania. n\ZAKONCZONO')
+    print('Brak danych do pobrania.\nZAKONCZONO')
 else:
     for year, info in dane_do_pobrania.items():
         liczba = len(info['linki'])
