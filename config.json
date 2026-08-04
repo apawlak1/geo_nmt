@@ -1,3 +1,18 @@
 {
-  "cache_dir": "C:/Users/strze/Documents/gnmt"
+  "cache_dir": "C:/Users/strze/Documents/gnmt",
+  "folium_v3": {
+    "powiat": "Sopot",
+    "lata": "2020",
+    "rozdzielczosc": 20.0,
+    "mozaika": true,
+    "pobierz": true,
+    "generalizacja": "FP",
+    "metoda_nfp": "bilinear"
+  },
+  "fpdems": {
+    "theta_t_deg": 15.0,
+    "iteracje_normalnych": 5,
+    "iteracje_wysokosci": 5,
+    "wsp_kroku": 0.2
+  }
 }

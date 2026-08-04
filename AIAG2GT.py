@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-Created on Mon Apr  6 16:46:35 2026
-
-@author: olaa3
+FUNKCJA KONWERTUJACA ARC INFO ASCII GRID DO GEOTIFF
 '''
 
 import numpy as np
@@ -11,7 +9,6 @@ from rasterio.transform import from_origin
 from rasterio.crs import CRS
 
 def AIAG2GTIFF(input_path, output_path, epsg_code=2180):
-    #---KONWERTUJE FORMAT ARC INFO ASCII GRID DO FORMATU GEOTIFF---
     with open(input_path, 'r') as file:
         lines=file.readlines()
 
@@ -49,7 +46,7 @@ def AIAG2GTIFF(input_path, output_path, epsg_code=2180):
     transform = from_origin(x_left, y_top, cellsize, cellsize)
     wykryty_crs = CRS.from_epsg(epsg_code)
 
-    #---ZAPIS ZA POMOCĄ RASTERIO (ZAMIAST TIFFFILE)---
+    #---ZAPIS ZA POMOCĄ RASTERIO---
     with rasterio.open(output_path, 'w', driver='GTiff',
                        height=nrows, width=ncols, count=1, dtype='float32',
                        crs=wykryty_crs, 
@@ -58,19 +55,3 @@ def AIAG2GTIFF(input_path, output_path, epsg_code=2180):
         dst.write(data, 1)
 
     print(f'[KONWERTER AIAG] Zapisano w: {output_path}')
-
-'''
-if __name__ == '__main__':
-    #---TEST URUCHAMIANY BEZPOSREDNIO Z TEGO PLIKU---
-    #sciezki brane z config.json (uniwersalne, dziala na kazdym komputerze)
-    #folder cache jest tworzony automatycznie, jak nie istnieje
-    from config_loader import load_config, resolve_in_cache
-
-    config = load_config()
-    tin_cfg = config['konwersja_tin']
-
-    testfile = tin_cfg['input_tin_folder']
-    output_path = resolve_in_cache(config, tin_cfg['output_name'])
-
-    AIAG2GTIFF(testfile, output_path)
-    '''

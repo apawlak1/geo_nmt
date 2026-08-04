@@ -1,0 +1,6 @@
+{
+  "cache_dir": "C:/Users/strze/Documents/gnmt",
+  "powiaty": ["Świnoujście"],
+  "lata": ["2019"],
+  "experimental_res": [5.0, 10.0, 20.0]
+}

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-Created on Mon Apr  6 17:52:41 2026
-
-@author: olaa3
+FUNKCJA KONWERTUJACA ASCII DO GEOTIFF
 '''
 
 import numpy as np
@@ -11,9 +9,15 @@ from rasterio.transform import from_origin
 from rasterio.crs import CRS
 from pathlib import Path
 import zipfile
+import re
+
 
 def ASCII2GT(input_path, output_path, epsg_code=2180):
     input_p = Path(input_path)
+    #DO ASCII NMT: ODRZUCAM ARKUSZE BEZ SUFIKSU _P
+    #dozwolone koncowki to _p lub brak
+    suffix=re.compile(r'_([A-Za-z])$')
+    allowed_suffix='p'
     
     if input_p.suffix.lower()=='.zip':
         print('[KONWERTER ASCII] Wypakowywanie ZIP')
@@ -31,11 +35,42 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
         if not found_files:
             print(f'[KONWERTER ASCII] Brak plikow ASCII w folderze {extraction_folder}')
             return None
+
+        #segregacja sufiksow
+        dozwolone_pliki=[]
+        odrzucone_pliki=[]
+        for f in found_files:
+            dopasowanie=suffix.search(f.stem)
+            #brak rozpoznawalnego sufiksu=dozwolone
+            #rozpoznany sufiks=dozwolony TYLKO jesli to "_p"
+            if dopasowanie is None or dopasowanie.group(1).lower() == allowed_suffix:
+                dozwolone_pliki.append(f)
+            else:
+                odrzucone_pliki.append(f)
+ 
+        if odrzucone_pliki:
+            print(f'[KONWERTER ASCII] Pominieto warianty pomocnicze:'
+                  f' {[f.name for f in odrzucone_pliki]}')
+ 
+        if not dozwolone_pliki:
+            print(f"[KONWERTER ASCII] BRAK wariantu '_p' (regularnej siatki) w "
+                  f"{extraction_folder} - archiwum POMINIETE.")
+            return None
+ 
+        if len(dozwolone_pliki) > 1:
+            print(f"[KONWERTER ASCII] Znaleziono {len(dozwolone_pliki)} dozwolonych "
+                  f"plikow w {extraction_folder}, uzywam pierwszego: {dozwolone_pliki[0].name}")
         
         #podmieniam sciezke wejsciowa na rozpakowany plik
-        new_input=found_files[0]
+        new_input=dozwolone_pliki[0]
     else:
         new_input=input_p
+
+    #filtrowanie po koncowce dla plikow niezzipowanych
+    dopasowanie=suffix.search(new_input.stem)
+    if dopasowanie is not None and dopasowanie.group(1).lower() != allowed_suffix:
+        print(f"[KONWERTER ASCII] Pominieto wariant pomocniczy: {new_input.name}")
+        return None
     
 
     #---KONWERTUJE FORMATY ASCII (NMT, TBD, XYZ GRID) DO FORMATU GEOTIFF---
@@ -58,7 +93,7 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
 
     #spr czy cokolwiek sie wczytalo
     if len(body) == 0:
-        print(f"[KONWERTER ASCII] BLAD: Plik {new_input} nie zawiera poprawnych linii X Y Z.")
+        print(f"[KONWERTER ASCII] BLAD: Plik {new_input} nie zawiera poprawnych linii XYZ.")
         return None
 
     # Tworzymy array i wymuszamy, żeby był 2D
@@ -96,7 +131,7 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
 
     # Ostateczne zabezpieczenie przed zerem lub brakiem wykrycia kroków siatki
     if cellsize is None or cellsize <= 0:
-        print(f"[KONWERTER ASCII] Pominieto (nieprawidłowa struktura siatki punktów): {new_input.name}")
+        print(f"[KONWERTER ASCII] Pominieto (nieprawidłowa struktura siatki punktow): {new_input.name}")
         return None
 
     x_min, x_max = x_coords.min(), x_coords.max()
@@ -143,22 +178,3 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
     print(f"[KONWERTER ASCII] Raster Z min/max: {np.nanmin(raster)} / {np.nanmax(raster)}")
     
     return cellsize, raster
-
-
-#---MOJA CZESC TESTOWA---
-
-'''
-if __name__ == '__main__':
-    #---TEST URUCHAMIANY BEZPOSREDNIO Z TEGO PLIKU---
-    #sciezki brane z config.json (uniwersalne, dziala na kazdym komputerze)
-    #folder cache jest tworzony automatycznie, jak nie istnieje
-    from config_loader import load_config, resolve_in_cache
-
-    config = load_config()
-    ascii_cfg = config['konwersja_ascii']
-
-    testfile = ascii_cfg['input_path']
-    output_path = resolve_in_cache(config, ascii_cfg['output_name'])
-
-    ASCII2GT(testfile, output_path)
-    '''
