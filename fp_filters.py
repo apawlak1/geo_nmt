@@ -239,6 +239,13 @@ def wczytaj_nmt(sciezka: str):
 def zapisz_nmt(dem: np.ndarray, profil: dict, sciezka: str):
     profil=profil.copy()
     profil.update(dtype="float32", nodata=np.nan)
+    #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+    #spojnie z konwencja przyjeta w ASCII2GT.py/AIAG2GT.py przy wczytywaniu
+    #danych wejsciowych - metody FP (fpdems/guided_filter/rekonstrukcja
+    #morfologiczna) same w sobie nie zaokraglaja wyniku (whitebox/scipy/
+    #skimage zwracaja pelna precyzje float), wiec bez tego zaokraglenia
+    #plik wyjsciowy mial nieuzyteczna liczbe miejsc po przecinku
+    dem=np.round(dem, 2)
     with rasterio.open(sciezka, "w", **profil) as dst:
         dst.write(dem.astype(np.float32), 1)
 

@@ -158,10 +158,15 @@ def ASCII2GT(input_path, output_path, epsg_code=2180):
     raster[rows, cols] = np.round(z_coords, 2)
 
     #--- 3. BOUNDING BOX DLA RASTERIO---
+    #x_min/y_max to WSPOLRZEDNE SRODKA skrajnej komorki (analogicznie do xllcenter/yllcenter w AIAG2GT.py)
+    #rasterio.from_origin oczekuje bNAROZNIKA (lewy gorny rog)
+    #POPRAWKA: wczesniej x_corner/y_corner byly NIEUZYWANE
+    #co przesuwalo kazdy raster z tego konwertera (ASCII NMT/XYZ) o pol piksela
+    #wzgl rastrow z AIAG2GT.py (ARC/INFO ASCII GRID)
     x_corner = x_min - (cellsize / 2)  
     y_corner = y_max + (cellsize / 2)
 
-    transform=from_origin(x_min, y_max, cellsize, cellsize)
+    transform=from_origin(x_corner, y_corner, cellsize, cellsize)
     wykryty_crs = CRS.from_epsg(epsg_code)
 
     #---!!!ZMIANA TIFFFILE NA RASTERIO!!!---

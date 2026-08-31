@@ -427,9 +427,13 @@ def generate_nfp_mosaics(tiffs_to_mosaic, geometry, mapa_daty, output_dir, base_
         print(f'[NFP] Pominieto test pokrycia. Uzyto wczesniej wyznaczonego '
               f'zestawu {len(uzyte_kafle)} kafli.')
 
-    #---ETAP 1: SPOJNA BAZA (NEAREST, NAJGRUBSZY PIKSEL WSROD UZYTYCH KAFLI)---
-    #podkladka pod generalizacje "w dol" (Etap 2 ponizej), NIE ground truth.
-    baza_zbudowana_tutaj=baza_natywna is None
+    #---ETAP 1: SPOJNA BAZA (NEAREST, NAJDROBNIEJSZY PIKSEL WSROD UZYTYCH KAFLI)---
+    #baza pod generalizacje = ta sama rozdzielczosc co referencja natywna
+    #(ground truth), zeby porownanie metod resamplingu startowalo z
+    #'najbogatszej' informacji, nie z danych juz raz zgeneralizowanych
+
+    baza_potrzebna=bool(metody) or return_baza_natywna
+    baza_zbudowana_tutaj=(baza_natywna is None) and baza_potrzebna
     tymczasowe_ujednolicone=[]
     if baza_zbudowana_tutaj:
         native_cellsize=find_native_cellsize(uzyte_kafle)
@@ -471,8 +475,11 @@ def generate_nfp_mosaics(tiffs_to_mosaic, geometry, mapa_daty, output_dir, base_
                 os.rmdir(os.path.dirname(tymczasowe_ujednolicone[0]))
             except OSError:
                 pass
+    elif baza_natywna is not None:
+        print(f'[NFP] Pominieto budowe bazy. Uzyto wczesniej wyznaczonej: {baza_natywna}')
     else:
-        print(f'[NFP] Pominieto budowe bazy. Uyzto wczesniej wyznaczonej: {baza_natywna}')
+        print('[NFP] Baza pominieta (brak metod do '
+              'resamplingu w Etapie 2 i return_baza_natywna=False).')
 
     #---ETAP 2: RESAMPLING BAZY DO target_cellsize, PO JEDNYM PRZEJSCIU NA METODE---
     wyniki={}

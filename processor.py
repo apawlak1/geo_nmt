@@ -112,7 +112,13 @@ def _zapisz_date_w_tagach(sciezka_tif, mapa_daty, nazwa_pliku, mapowanie_zrodlow
 def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
                  mapa_daty=None, create_mosaic=True, extract=True,
                  dir_a=None, dir_b=None, target_cellsize=None,
-                 return_kafle_info=False, metoda_nfp='nearest'):
+                 return_kafle_info=False, metoda_nfp='nearest',
+                 tylko_test_pokrycia=False):
+    '''
+    tylko_test_pokrycia : jesli True, pomija budowe bazy
+    i zapis mozaik eksperymentalnych wewnatrz generate_nfp_mosaics
+    wywolanie sluzy tylko do wyznaczenia listy uzyte_kafle
+    '''
     _MAPA_METOD_NFP = {'nearest': Resampling.nearest,
                        'bilinear': Resampling.bilinear,
                        'bicubic': Resampling.cubic, 'cubic': Resampling.cubic}
@@ -322,18 +328,37 @@ def process_data(zip_dir, final_output_path, geometry, mapa_ukladow=None,
         base_name = Path(final_output_path).stem
 
         try:
-            wyniki_nfp, uzyte_kafle, baza_natywna = generate_nfp_mosaics(
-                tiffs_to_mosaic=tiffs_to_mosaic,
-                geometry=geometry,
-                mapa_daty=mapa_daty,
-                output_dir=output_folder,
-                base_name=base_name,
-                target_cellsize=target_cellsize,
-                metody={metoda_nfp_key: resampling_nfp, 'nearest': Resampling.nearest},
-                metoda_ujednolicania=resampling_nfp,
-                return_uzyte_kafle=True,
-                return_baza_natywna=True,
-            )
+            if tylko_test_pokrycia:
+                #---SZYBKA SCIEZKA: TYLKO WYZNACZENIE uzyte_kafle---
+                #metody={} + return_baza_natywna=False -> generate_nfp_mosaics
+                #pomija zetap 1 (merge blokami calej bazy)
+                #i etap 2 (resampling do target_cellsize)
+                
+                wyniki_nfp, uzyte_kafle = generate_nfp_mosaics(
+                    tiffs_to_mosaic=tiffs_to_mosaic,
+                    geometry=geometry,
+                    mapa_daty=mapa_daty,
+                    output_dir=output_folder,
+                    base_name=base_name,
+                    target_cellsize=target_cellsize,
+                    metody={},
+                    return_uzyte_kafle=True,
+                    return_baza_natywna=False,
+                )
+                baza_natywna = None
+            else:
+                wyniki_nfp, uzyte_kafle, baza_natywna = generate_nfp_mosaics(
+                    tiffs_to_mosaic=tiffs_to_mosaic,
+                    geometry=geometry,
+                    mapa_daty=mapa_daty,
+                    output_dir=output_folder,
+                    base_name=base_name,
+                    target_cellsize=target_cellsize,
+                    metody={metoda_nfp_key: resampling_nfp, 'nearest': Resampling.nearest},
+                    metoda_ujednolicania=resampling_nfp,
+                    return_uzyte_kafle=True,
+                    return_baza_natywna=True,
+                )
         except Exception as e:
             #JESLI TU WYSTAPI BLAD GDAL W STYLU "TIFFReadDirectory: Failed to
             #read directory at offset ..." - to znak, ze jeden z plikow .tif

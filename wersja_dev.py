@@ -258,23 +258,10 @@ def zapisz_raport_nfp(output_dir, powiat_save, year, rozdzielczosc, cellsize_nat
 def zapisz_raport_fp(output_dir, powiat_save, year, rozdzielczosc, cellsize_eksperymentalna,
                       metoda_bazowa, stats_fp, cva_oryginal, cva_fp,
                       liczba_plikow, formaty_plikow, liczba_wykorzystanych,
-                      min_px_natywny, max_px_natywny):
+                      min_px_natywny, max_px_natywny,
+                      roznice_vs_referencja=None, cva_rastry=None):
+
     #---RAPORT: DANE WEJSCIOWE (ARKUSZE) + METODY FEATURE-PRESERVING + CVA---
-    #
-    #NOWE PARAMETRY (wzgledem poprzedniej wersji):
-    #  liczba_plikow        - int, wszystkie arkusze NMT znalezione/skonwertowane
-    #                         dla tego roku (np. len(tiffs_to_mosaic))
-    #  formaty_plikow       - dict {nazwa_formatu: liczba}, np.
-    #                         {'ASCII NMT': 40, 'ASCII XYZ': 15, 'ASCII TBD': 3}
-    #                         (np. skorowidze['format'].value_counts().to_dict())
-    #  liczba_wykorzystanych- int, ile arkuszy faktycznie trafilo do mozaiki
-    #                         (np. len(uzyte_kafle_podstawowe))
-    #  min_px_natywny       - float, najmniejszy (najdrobniejszy) piksel wsrod
-    #                         arkuszy natywnych (np. find_min_cellsize(tiffs_to_mosaic)
-    #                         z nfp_mosaics.py)
-    #  max_px_natywny       - float, najwiekszy (najgrubszy) piksel wsrod
-    #                         arkuszy natywnych (np. find_native_cellsize(tiffs_to_mosaic)
-    #                         z nfp_mosaics.py)
     linie=[]
     linie.append(f'RAPORT FP - GENERALIZACJA NMT: {powiat_save}_{year}_{rozdzielczosc}m')
     linie.append('-'*60)
@@ -293,7 +280,7 @@ def zapisz_raport_fp(output_dir, powiat_save, year, rozdzielczosc, cellsize_eksp
     linie.append('')
 
     if stats_fp:
-        linie.append('---METODY FP (feature-preserving)---')
+        linie.append('!!BLAD WZGLEDEM DANYCH SPRZED FILTRACJI (input vs output filtra)!!')
         for nazwa, s in stats_fp.items():
             linie.append(f'---METODA {nazwa.upper()}---')
             linie.append(f"plik: {s.get('plik', '-')}")
@@ -308,24 +295,72 @@ def zapisz_raport_fp(output_dir, powiat_save, year, rozdzielczosc, cellsize_eksp
         metody_z_rmse={nazwa: s['RMSE'] for nazwa, s in stats_fp.items() if s.get('RMSE') is not None}
         if metody_z_rmse:
             najlepsza=min(metody_z_rmse, key=metody_z_rmse.get)
-            linie.append(f'Metoda FP z najnizszym RMSE w tym przebiegu: {najlepsza} '
+            linie.append(f'Metoda FP z najnizszym RMSE w tym przebiegu (vs przed filtracja): {najlepsza} '
                          f'(RMSE={metody_z_rmse[najlepsza]:.3f} m)')
             linie.append('')
+
+    #---BLAD WZGLEDEM REFERENCJI NATYWNEJ (ground truth)---
+    if roznice_vs_referencja:
+        linie.append('=== BLAD WZGLEDEM REFERENCJI NATYWNEJ (ground truth) ===')
+
+        stats_wejscie=roznice_vs_referencja.get('przed_filtracja')
+        if stats_wejscie is not None:
+            linie.append('---PRZED FILTRACJA (sam resampling, punkt odniesienia)---')
+            linie.append(f"liczba pikseli (n_px): {stats_wejscie.get('n_px')}")
+            linie.append(f"MAE ={stats_wejscie.get('MAE'):.3f} m" if stats_wejscie.get('MAE') is not None else 'MAE =-')
+            linie.append(f"RMSE={stats_wejscie.get('RMSE'):.3f} m" if stats_wejscie.get('RMSE') is not None else 'RMSE=-')
+            linie.append('')
+
+        rmse_po_filtracji={}
+        for nazwa, s in roznice_vs_referencja.items():
+            if nazwa == 'przed_filtracja':
+                continue
+            linie.append(f'---METODA {nazwa.upper()} (po filtracji, vs REFERENCJA)---')
+            linie.append(f"liczba pikseli (n_px): {s.get('n_px')}")
+            linie.append(f"MAE ={s.get('MAE'):.3f} m" if s.get('MAE') is not None else 'MAE =-')
+            linie.append(f"RMSE={s.get('RMSE'):.3f} m" if s.get('RMSE') is not None else 'RMSE=-')
+
+            if (stats_wejscie is not None and stats_wejscie.get('RMSE') is not None
+                    and s.get('RMSE') is not None):
+                delta=s['RMSE'] - stats_wejscie['RMSE']
+                kierunek='POPRAWA' if delta < 0 else ('POGORSZENIE' if delta > 0 else 'BEZ ZMIAN')
+                linie.append(f"delta RMSE vs przed filtracja: {delta:+.3f} m ({kierunek})")
+                rmse_po_filtracji[nazwa]=s['RMSE']
+            linie.append('')
+
+        if rmse_po_filtracji:
+            najlepsza_vs_ref=min(rmse_po_filtracji, key=rmse_po_filtracji.get)
+            linie.append(f'Metoda FP z najnizszym RMSE wzgledem REFERENCJI: {najlepsza_vs_ref} '
+                         f'(RMSE={rmse_po_filtracji[najlepsza_vs_ref]:.3f} m)')
+            linie.append('')
+    else:
+        linie.append('=== BLAD WZGLEDEM REFERENCJI NATYWNEJ: NIE OBLICZONO ===')
+        linie.append('(referencja_natywna nie zostala przekazana do analiza_fp_generalizacji)')
+        linie.append('')
 
     if cva_oryginal and cva_fp:
         linie.append('---SYGNATURY SKALOWE CVA (oryginal vs metody FP)---')
         naglowek=f"{'okno':>6} | {'oryginal':>10} | " + " | ".join(f"{n:>10}" for n in cva_fp)
         linie.append(naglowek)
         for okno in cva_oryginal:
-            wiersz=f"{okno:>6} | {cva_oryginal[okno]:>10.4f} | "
-            wiersz += " | ".join(f"{cva_fp[nazwa].get(okno, float('nan')):>10.4f}" for nazwa in cva_fp)
+            wiersz=f"{okno:>6} | {cva_oryginal[okno]:>10.3f} | "
+            wiersz += " | ".join(f"{cva_fp[nazwa].get(okno, float('nan')):>10.3f}" for nazwa in cva_fp)
             linie.append(wiersz)
+        linie.append('')
+
+    #---MAPY RASTROWE CVA (przestrzenny rozklad szorstkosci terenu, plik .tif)---
+    if cva_rastry:
+        linie.append('---MAPY RASTROWE CVA (przestrzenny rozklad, zapisane pliki .tif)---')
+        for nazwa, sciezka in cva_rastry.items():
+            linie.append(f"{nazwa.upper()}: {sciezka}")
         linie.append('')
 
     tresc='\n'.join(linie)
     print('\n'+tresc)
 
-    sciezka_raportu=os.path.join(output_dir, f'{powiat_save}_{year}_{rozdzielczosc}m_RAPORT_FP.txt')
+    #---'baza' W NAZWIE PLIKU---
+    sciezka_raportu=os.path.join(
+        output_dir, f'{powiat_save}_{year}_{rozdzielczosc}m_baza_{metoda_bazowa}_RAPORT_FP.txt')
     with open(sciezka_raportu, 'w', encoding='utf-8') as f:
         f.write(tresc)
     print(f'[DEV] Raport FP zapisany w: {sciezka_raportu}')
@@ -469,12 +504,15 @@ def przygotuj_baze_powiatu(nazwa_user, year_user, powiaty, cache_dir, wfs_nmt, h
         nazwa_pliku_wyniku=f'NMT_{powiat_save}_{year}_FINAL.tif'
         pelna_sciezka_wyniku=os.path.join(info['folder'], nazwa_pliku_wyniku)
 
+        #---tylko_test_pokrycia=True: OSZCZEDNOSC CZASU---
         wyniki_nfp_podstawowe, uzyte_kafle_podstawowe, baza_natywna_podstawowa=process_data(
             dir_entry, pelna_sciezka_wyniku, geometry, mapa_ukladow, mapa_daty,
             create_mosaic=True, extract=True, dir_a=dir_2000, dir_b=dir_1992,
-            return_kafle_info=True)
+            return_kafle_info=True, tylko_test_pokrycia=True)
 
-        print(f'[DEV] Mozaiki podstawowe (nearest/bilinear/bicubic): {wyniki_nfp_podstawowe}')
+        #---wyniki_nfp_podstawowe jest teraz pusty---
+        print(f'[DEV] Test pokrycia JPT zakonczony (baza/mozaiki podstawowe '
+              f'pominiete - tylko_test_pokrycia=True).')
 
         #---ZABEZPIECZENIE: process_data() MOGLO SIE NIE POWIESC---
         #(np. blad wewnatrz generate_nfp_mosaics - patrz pelny traceback
@@ -507,12 +545,12 @@ def przygotuj_baze_powiatu(nazwa_user, year_user, powiaty, cache_dir, wfs_nmt, h
             'tiffs_to_mosaic': tiffs_to_mosaic,
             'mapa_daty': mapa_daty,
             'uzyte_kafle_podstawowe': uzyte_kafle_podstawowe,
-            'baza_natywna_podstawowa': baza_natywna_podstawowa,
+            #---ZMIANA: BAZA POD GENERALIZACJE = REFERENCJA NATYWNA (NAJDROBNIEJSZY PX)---
+            'baza_natywna_podstawowa': referencja_natywna_path,
             'referencja_natywna_path': referencja_natywna_path,
             #---DODANE: skorowidze (zawiera kolumne 'format') POTRZEBNE do
             #policzenia formaty_plikow (ASCII NMT/ASCII XYZ/...) w raporcie FP---
-            'skorowidze': skorowidze,
-        }
+            'skorowidze': skorowidze,}
 
     return powiat_save, geometry, dane_bazowe
 
@@ -617,35 +655,41 @@ def analizuj_rozdzielczosc(rok, rozdzielczosc, dane_bazowe_rok, powiat_save, geo
                        cellsize_natywna, cellsize_eksperymentalna, stats_natywna, stats_nfp)
 
     # ==================================================================
-    # KROK 4: METODY FEATURE-PRESERVING (na bazie NEAREST - juz wiadomo,
-    # ze to najlepsza metoda NFP dla tego typu danych)
+    # KROK 4-6: METODY FEATURE-PRESERVING DLA KAZDEJ Z TRZECH MOZAIK NFP
     # ==================================================================
-    metoda_bazowa='nearest'
-    referencja_fp=wyniki_analizy.get('eksperymentalna', {}).get(metoda_bazowa)
+    #KAZDA z trzech mozaik NFP jest filtrowana OBIEMA metodami
+    #kazda kombinacja (baza, rozdzielczosc) dostaje wlasny raport FP
+    for baza, referencja_fp in wyniki_analizy.get('eksperymentalna', {}).items():
+        if not referencja_fp:
+            print(f'[DEV] UWAGA: brak mozaiki NFP dla bazy "{baza}" - pomijam '
+                  f'filtracje dla tej bazy.')
+            continue
 
-    stats_fp={}
-    cva_oryginal, cva_fp={}, {}
-
-    if referencja_fp:
-        print(f'\n[DEV] ---KROK 4: FILTRACJA FEATURE-PRESERVING (baza: {metoda_bazowa}, '
+        print(f'\n[DEV] ---KROK 4: FILTRACJA FEATURE-PRESERVING (baza: {baza}, '
               f'{cellsize_eksperymentalna} m) - {powiat_save} {rok} {rozdzielczosc_int}m---')
+        base_name_fp=f'{powiat_save}_{rok}_baza_{baza}'
         wyniki_fp=analiza_fp_generalizacji(
             dem_path=referencja_fp, output_dir=output_dir_analiza,
-            base_name=f'{powiat_save}_{rok}')
+            base_name=base_name_fp,
+            referencja_natywna=referencja_natywna_path)
 
         # ==============================================================
         # KROK 5: RASTRY ROZNICOWE FP (zapisywane na dysk, bez kolorowania)
         # ==============================================================
-        print(f'\n[DEV] ---KROK 5: RASTRY ROZNICOWE FP - {powiat_save} {rok} {rozdzielczosc_int}m---')
+        print(f'\n[DEV] ---KROK 5: RASTRY ROZNICOWE FP (baza: {baza}) - '
+              f'{powiat_save} {rok} {rozdzielczosc_int}m---')
+        stats_fp={}
         for nazwa, sciezka_fp in wyniki_fp.get('wyniki_fp', {}).items():
             s_fp=dict(wyniki_fp.get('roznice_fp', {}).get(nazwa, {}))
-            #---czytelna, jednolita nazwa + zapis do tego samego folderu co mozaika FP---
+            #---czytelna, jednolita nazwa (z baza) + zapis do tego samego
+            #folderu co mozaika FP---
             folder_mozaiki_fp=os.path.dirname(sciezka_fp) or output_dir_analiza
-            nazwa_pliku_diff=f'{powiat_save}_{rok}_{rozdzielczosc_int}m_FP_{nazwa.upper()}_ROZNICA.tif'
+            nazwa_pliku_diff=(f'{powiat_save}_{rok}_{rozdzielczosc_int}m_baza_{baza}_'
+                              f'FP_{nazwa.upper()}_ROZNICA.tif')
 
             wynik_fp=parametry_roznicy_fp(
                 referencja_fp, sciezka_fp,
-                f'FP {nazwa} vs {metoda_bazowa} - {powiat_save} {rok}', s_fp,
+                f'FP {nazwa} vs {baza} - {powiat_save} {rok}', s_fp,
                 output_dir=folder_mozaiki_fp, nazwa_pliku_wyniku=nazwa_pliku_diff)
 
             s_fp['plik']=sciezka_fp
@@ -655,16 +699,22 @@ def analizuj_rozdzielczosc(rok, rozdzielczosc, dane_bazowe_rok, powiat_save, geo
 
         cva_oryginal=wyniki_fp.get('cva_oryginal', {})
         cva_fp=wyniki_fp.get('cva_fp', {})
-        pokaz_sygnatury_cva(cva_oryginal, cva_fp, f'{powiat_save} {rok} {rozdzielczosc_int}m')
+        roznice_vs_referencja=wyniki_fp.get('roznice_vs_referencja', {})
+        cva_rastry=wyniki_fp.get('cva_rastry', {})
+        pokaz_sygnatury_cva(cva_oryginal, cva_fp,
+                            f'{powiat_save} {rok} {rozdzielczosc_int}m (baza: {baza})')
 
-    # ==================================================================
-    # KROK 6: OSOBNY RAPORT FP (+ CVA + statystyki arkuszy wejsciowych)
-    # ==================================================================
-    print(f'\n[DEV] ---KROK 6: RAPORT FP - {powiat_save} {rok} {rozdzielczosc_int}m---')
-    zapisz_raport_fp(output_dir_analiza, powiat_save, rok, rozdzielczosc_int, cellsize_eksperymentalna,
-                      metoda_bazowa, stats_fp, cva_oryginal, cva_fp,
-                      liczba_plikow, formaty_plikow, liczba_wykorzystanych,
-                      min_px_natywny, max_px_natywny)
+        # ==============================================================
+        # KROK 6: OSOBNY RAPORT FP (+ CVA + statystyki arkuszy wejsciowych)
+        # ==============================================================
+        print(f'\n[DEV] ---KROK 6: RAPORT FP (baza: {baza}) - {powiat_save} '
+              f'{rok} {rozdzielczosc_int}m---')
+        zapisz_raport_fp(output_dir_analiza, powiat_save, rok, rozdzielczosc_int,
+                          cellsize_eksperymentalna, baza, stats_fp, cva_oryginal, cva_fp,
+                          liczba_plikow, formaty_plikow, liczba_wykorzystanych,
+                          min_px_natywny, max_px_natywny,
+                          roznice_vs_referencja=roznice_vs_referencja,
+                          cva_rastry=cva_rastry)
 
     if sciezka_mapa_kafli:
         pokaz_mape_kafli(
