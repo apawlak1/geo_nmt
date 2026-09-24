@@ -1,0 +1,185 @@
+# -*- coding: utf-8 -*-
+'''
+FUNKCJA KONWERTUJACA ASCII DO GEOTIFF
+'''
+
+import numpy as np
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.crs import CRS
+from pathlib import Path
+import zipfile
+import re
+
+
+def ASCII2GT(input_path, output_path, epsg_code=2180):
+    input_p = Path(input_path)
+    #DO ASCII NMT: ODRZUCAM ARKUSZE BEZ SUFIKSU _P
+    #dozwolone koncowki to _p lub brak
+    suffix=re.compile(r'_([A-Za-z])$')
+    allowed_suffix='p'
+    
+    if input_p.suffix.lower()=='.zip':
+        print('[KONWERTER ASCII] Wypakowywanie ZIP')
+    
+        #tworzenie folderu jak nie istnieje
+        extraction_folder = input_p.with_suffix('')
+        extraction_folder.mkdir(parents=True, exist_ok=True)
+    
+        with zipfile.ZipFile(input_path, 'r') as zip_ref:
+            zip_ref.extractall(extraction_folder)
+        
+        print(f"[KONWERTER ASCII] Wypakowano do: {extraction_folder}")
+
+        found_files = [f for f in extraction_folder.iterdir() if f.suffix.lower() in ['.asc', '.txt', '.xyz']]
+        if not found_files:
+            print(f'[KONWERTER ASCII] Brak plikow ASCII w folderze {extraction_folder}')
+            return None
+
+        #segregacja sufiksow
+        dozwolone_pliki=[]
+        odrzucone_pliki=[]
+        for f in found_files:
+            dopasowanie=suffix.search(f.stem)
+            #brak rozpoznawalnego sufiksu=dozwolone
+            #rozpoznany sufiks=dozwolony TYLKO jesli to "_p"
+            if dopasowanie is None or dopasowanie.group(1).lower() == allowed_suffix:
+                dozwolone_pliki.append(f)
+            else:
+                odrzucone_pliki.append(f)
+ 
+        if odrzucone_pliki:
+            print(f'[KONWERTER ASCII] Pominieto warianty pomocnicze:'
+                  f' {[f.name for f in odrzucone_pliki]}')
+ 
+        if not dozwolone_pliki:
+            print(f"[KONWERTER ASCII] BRAK wariantu '_p' (regularnej siatki) w "
+                  f"{extraction_folder} - archiwum POMINIETE.")
+            return None
+ 
+        if len(dozwolone_pliki) > 1:
+            print(f"[KONWERTER ASCII] Znaleziono {len(dozwolone_pliki)} dozwolonych "
+                  f"plikow w {extraction_folder}, uzywam pierwszego: {dozwolone_pliki[0].name}")
+        
+        #podmieniam sciezke wejsciowa na rozpakowany plik
+        new_input=dozwolone_pliki[0]
+    else:
+        new_input=input_p
+
+    #filtrowanie po koncowce dla plikow niezzipowanych
+    dopasowanie=suffix.search(new_input.stem)
+    if dopasowanie is not None and dopasowanie.group(1).lower() != allowed_suffix:
+        print(f"[KONWERTER ASCII] Pominieto wariant pomocniczy: {new_input.name}")
+        return None
+    
+
+    #---KONWERTUJE FORMATY ASCII (NMT, TBD, XYZ GRID) DO FORMATU GEOTIFF---
+    with open(new_input, 'r') as file:
+        txtfile=file.readlines()
+
+    body=[]
+    for line in txtfile:
+        #czyszcze linie z bialych znakow i dziele
+        line_parts = line.strip().split()
+        
+        #ignoruje naglowki i puste linie, tylko wiersze z 3 kolumnami
+        if len(line_parts) == 3:
+            try:
+                #zeby odsiac tekst
+                float_parts = [float(x) for x in line_parts]
+                body.append(float_parts)
+            except ValueError:
+                continue
+
+    #spr czy cokolwiek sie wczytalo
+    if len(body) == 0:
+        print(f"[KONWERTER ASCII] BLAD: Plik {new_input} nie zawiera poprawnych linii XYZ.")
+        return None
+
+    # Tworzymy array i wymuszamy, żeby był 2D
+    body = np.array(body, dtype=np.float64)
+    
+    # DODATKOWE SPRAWDZENIE STRUKTURY
+    if body.ndim != 2 or body.shape[1] != 3:
+        print(f"[KONWERTER ASCII] BLAD: Nieprawidlowa struktura danych w {new_input}, shape: {body.shape}")
+        return None
+
+    x_coords=body[:,0]
+    y_coords=body[:,1]
+    z_coords=body[:,2]
+    
+    #--- 1. CELLSIZE---
+    #zaokraglam wsp wdo 3 miejsc po przecinku zeby uniknac bledu precyzji Pythona
+    unique_x = np.sort(np.unique(np.round(x_coords, 3)))
+    unique_y = np.sort(np.unique(np.round(y_coords, 3)))
+    cellsize = None
+    
+    #spr roznice miedzy unikalnymi kolumnami (os X)
+    if len(unique_x) > 1:
+        diffs_x = np.diff(unique_x)
+        #biore najmniejsza rzeczywista roznice wieksza niz 5 cm (najmniejszy mozliwy px w PZGiK)
+        valid_diffs_x = diffs_x[diffs_x > 0.05]
+        if len(valid_diffs_x) > 0:
+            cellsize = round(np.min(valid_diffs_x), 2) #zaokr do cm
+
+    #spr os Y jesli pkt w pliku to pionowa linia (mozliwe w ASCII TBD)
+    if cellsize is None and len(unique_y) > 1:
+        diffs_y = np.diff(unique_y)
+        valid_diffs_y = diffs_y[diffs_y > 0.05]
+        if len(valid_diffs_y) > 0:
+            cellsize = round(np.min(valid_diffs_y), 2)
+
+    # Ostateczne zabezpieczenie przed zerem lub brakiem wykrycia kroków siatki
+    if cellsize is None or cellsize <= 0:
+        print(f"[KONWERTER ASCII] Pominieto (nieprawidłowa struktura siatki punktow): {new_input.name}")
+        return None
+
+    x_min, x_max = x_coords.min(), x_coords.max()
+    y_min, y_max = y_coords.min(), y_coords.max()    
+
+    #--- 2. INDEKSOWANIE (ALOKACJA RAM) ---
+    #obl liczbe kolumn i wierszy
+    ncols = int(round((x_max - x_min) / cellsize)) + 1
+    nrows = int(round((y_max - y_min) / cellsize)) + 1
+    
+    #przygotowanie matrycy rastra
+    raster = np.full((nrows, ncols), np.nan, dtype=np.float64)
+    
+    #WAZNE!!! najpierw zaokraglam do najnizszej liczby calkowitej, dopiero pozniej wrzucam do int
+    #chodzi o precyzje Pythona
+    cols = np.round((x_coords - x_min) / cellsize).astype(int)
+    rows = np.round((y_max - y_coords) / cellsize).astype(int)
+
+    cols = np.clip(cols, 0, ncols - 1)
+    rows = np.clip(rows, 0, nrows - 1)
+
+    #wypelnienie rastra wartosciami Z
+    #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+    raster[rows, cols] = np.round(z_coords, 2)
+
+    #--- 3. BOUNDING BOX DLA RASTERIO---
+    #x_min/y_max to WSPOLRZEDNE SRODKA skrajnej komorki (analogicznie do xllcenter/yllcenter w AIAG2GT.py)
+    #rasterio.from_origin oczekuje NAROZNIKA (lewy gorny rog)
+    #POPRAWKA: wczesniej x_corner/y_corner byly NIEUZYWANE
+    #co przesuwalo kazdy raster z tego konwertera (ASCII NMT/XYZ) o pol piksela
+    #wzgl rastrow z AIAG2GT.py (ARC/INFO ASCII GRID)
+    x_corner = x_min - (cellsize / 2)  
+    y_corner = y_max + (cellsize / 2)
+
+    transform=from_origin(x_corner, y_corner, cellsize, cellsize)
+    wykryty_crs = CRS.from_epsg(epsg_code)
+
+    #---!!!ZMIANA TIFFFILE NA RASTERIO!!!---
+    with rasterio.open(output_path, 'w', driver='GTiff',
+                       height=raster.shape[0], width=raster.shape[1], count=1,
+                       dtype='float32',
+                       crs=wykryty_crs, transform=transform,
+                       nodata=np.nan, compress='lzw') as dst:
+        dst.write(raster.astype('float32'), 1)
+
+    print(f'[KONWERTER ASCII] Zapisano w: {output_path}')
+
+    print(f"[KONWERTER ASCII] Oryginalne Z min/max: {z_coords.min()} / {z_coords.max()}")
+    print(f"[KONWERTER ASCII] Raster Z min/max: {np.nanmin(raster)} / {np.nanmax(raster)}")
+    
+    return cellsize, raster

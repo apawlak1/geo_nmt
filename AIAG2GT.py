@@ -1,0 +1,66 @@
+# -*- coding: utf-8 -*-
+'''
+FUNKCJA KONWERTUJACA ARC INFO ASCII GRID DO GEOTIFF
+'''
+
+import numpy as np
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.crs import CRS
+
+def AIAG2GTIFF(input_path, output_path, epsg_code=2180):
+    with open(input_path, 'r') as file:
+        lines=file.readlines()
+
+    #wychodze z pliku, pracuje na tym co jest w pamieci    
+    header=[line.split() for line in lines[:6]]
+    body=lines[6:]
+
+    #metadata: przerabiane naglowka na zmienne
+    #[0] na koncu wyciaga wszystko do zwyklej zmiennej (bez listy)
+    md={row[0].lower(): float(row[1]) for row in header}
+
+    ncols = int(md['ncols'])
+    nrows = int(md['nrows'])
+    cellsize = round(md['cellsize'], 2)
+    nodata_value = md.get('nodata_value', -9999) #.get na wypadek braku klucza
+
+    #--- PRZELICZENIE DLA RASTERIO ---
+    if 'xllcenter' in md:
+        #xllcenter i yllcenter to SRODEK lewego dolnego px
+        #a potrzebuje wsp ZEWNETRZNEGO LEWEGO GORNEGO ROGU (x_left, y_top).
+        xllcenter = md['xllcenter']
+        yllcenter = md['yllcenter']
+        x_left = xllcenter - (cellsize / 2)
+
+        #przejscie od dolnego srodka (yllcenter) do gornej krawędzi (y_top)
+        y_top = yllcenter + (nrows - 1) * cellsize + (cellsize / 2)
+    else:
+        #DODANE: naglowek z NAROZNIKIEM (xllcorner/yllcorner) - naroznik dolny lewy
+        x_left = md['xllcorner']
+        y_top = md['yllcorner'] + nrows * cellsize
+
+    #zmiana tresci (body) na macierz numpy (2D)
+    data = np.fromstring(' '.join(body), sep=' ').reshape((nrows, ncols)).astype('float32')
+
+    #---BRAK DANYCH JAKO NaN (ZMIANA)---
+    #tak samo jak w ASCII2GT.py - dzieki temu w jednym roku mozna mieszac arkusze
+    #z obu konwerterow, a w ZARR jest jedna wartosc braku danych (NaN)
+    data[data == np.float32(nodata_value)] = np.nan
+
+    #---ZAOKRAGLENIE WYSOKOSCI DO 2 MSC PO PRZECINKU---
+    data = np.round(data, 2)
+
+    #definicja transformacji przestrzennej na podstawie lewego gornego rogu
+    transform = from_origin(x_left, y_top, cellsize, cellsize)
+    wykryty_crs = CRS.from_epsg(epsg_code)
+
+    #---ZAPIS ZA POMOCĄ RASTERIO---
+    with rasterio.open(output_path, 'w', driver='GTiff',
+                       height=nrows, width=ncols, count=1, dtype='float32',
+                       crs=wykryty_crs, 
+                       transform=transform, nodata=np.nan, compress='lzw' #lzw jest bezstratna
+                       ) as dst:
+        dst.write(data, 1)
+
+    print(f'[KONWERTER AIAG] Zapisano w: {output_path}')

@@ -1,0 +1,29 @@
+# Srodowisko conda do odtworzenia calego procesu (pobieranie -> konwersja -> Zarr -> narzedzia pomocnicze).
+#
+#   conda env create -f environment.yml
+#   conda activate nmt-zarr
+#   python folium_v3.py
+#
+# Kod byl testowany z (Python 3.12): numpy 2.4, pandas 3.0, geopandas 1.1, shapely 2.1, rasterio 1.5 (GDAL 3.12),
+# xarray 2026.7, rioxarray 0.23, zarr 3.4, dask 2026.8, folium 0.20, requests 2.33, pytest 9.
+name: nmt-zarr
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy>=2
+  - pandas>=2
+  - geopandas>=1
+  - shapely>=2
+  - fiona              # downloader.download_powiaty czyta granice PRG przez engine='fiona'
+  - pyogrio
+  - pyproj
+  - rasterio>=1.4
+  - xarray
+  - rioxarray
+  - zarr>=3
+  - dask
+  - requests
+  - folium>=0.19
+  - branca
+  - pytest             # tylko do uruchamiania testow (pytest)

@@ -1,0 +1,18 @@
+{
+  "cache_dir": "E:/olsztyn/nmt",
+  "mapa": {
+    "zapisz": true
+  },
+  "geo_nmt": {
+    "powiat": "lęborski",
+    "lata": "auto",
+    "rok_start": 2019,
+    "rozdzielczosc": null,
+    "poziomy": [5, 20],
+    "resampling_poziomow": "bilinear",
+    "pobierz": true,
+    "wymus": false,
+    "zarr": true,
+    "geotiff": false
+  }
+}

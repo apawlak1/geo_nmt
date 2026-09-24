@@ -1,0 +1,17 @@
+# odpowiednik environment.yml dla pip (zalecane conda: rasterio/geopandas/fiona instaluja sie latwiej)
+numpy
+pandas
+geopandas
+fiona
+pyogrio
+shapely
+rasterio
+xarray
+rioxarray
+zarr
+dask
+requests
+folium
+branca
+# testy:
+pytest
